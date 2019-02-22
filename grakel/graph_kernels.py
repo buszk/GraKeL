@@ -352,6 +352,10 @@ class GraphKernel(BaseEstimator, TransformerMixin):
             K = self.kernel_.transform(X)
 
         return K
+    
+    def update_kernel(self, X):
+        self.kernel_.update_kernel(X)
+        return self
 
     def fit_transform(self, X, y=None):
         """Fit and transform, on the same dataset.
@@ -555,3 +559,4 @@ class GraphKernel(BaseEstimator, TransformerMixin):
 
         # Set parameters
         super(GraphKernel, self).set_params(**params)
+

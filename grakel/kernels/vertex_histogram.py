@@ -2,7 +2,6 @@
 # Author: Ioannis Siglidis <y.siglidis@gmail.com>
 # License: BSD 3 clause
 from warnings import warn
-
 from collections import Counter
 from collections import Iterable
 
@@ -14,6 +13,8 @@ from grakel.graph import Graph
 
 from numpy import zeros
 from numpy import einsum
+from numpy import diagonal
+from numpy import concatenate
 
 # Python 2/3 cross-compatibility import
 from six import iteritems
@@ -120,6 +121,8 @@ class VertexHistogram(Kernel):
             # Initialise the feature matrix
             features = zeros(shape=(ni, len(labels)))
             features[rows, cols] = data
+            #print("Corected features")
+            #print(features)
 
             if ni == 0:
                 raise ValueError('parsed input is empty')
@@ -149,6 +152,7 @@ class VertexHistogram(Kernel):
             K = self.X.dot(self.X.T)
         else:
             K = Y[:, :self.X.shape[1]].dot(self.X.T)
+        #print("K", K)
         return K
 
     def diagonal(self):
@@ -173,6 +177,7 @@ class VertexHistogram(Kernel):
         except NotFittedError:
             # Calculate diagonal of X
             self._X_diag = einsum('ij,ij->i', self.X, self.X)
+            #print("_X_diag", self._X_diag)
 
         try:
             check_is_fitted(self, ['_Y'])
@@ -180,3 +185,91 @@ class VertexHistogram(Kernel):
             return self._X_diag, Y_diag
         except NotFittedError:
             return self._X_diag
+    def update_kernel(self, Xn):
+        """Update the kernel with new input without retraining the whole thing
+
+        Parameters
+        ----------
+        X : iterable
+            For the input to pass the test, we must have:
+            Each element must be an iterable with at most three features and at
+            least one. The first that is obligatory is a valid graph structure
+            (adjacency matrix or edge_dictionary) while the second is
+            node_labels and the third edge_labels (that fitting the given graph
+            format).
+
+        Returns
+        -------
+        out : np.array, shape=(len(X), n_labels)
+            A np.array for frequency (cols) histograms for all Graphs (rows).
+        
+        """
+        if not isinstance(Xn, Iterable):
+            raise TypeError('input must be an iterable\n')
+        else:
+            rows, cols, data = list(), list(), list()
+            labels = dict(self._labels)
+            ni = 0
+            _ni = self.X.shape[0]
+            for (i, x) in enumerate(iter(Xn)):
+                is_iter = isinstance(x, Iterable)
+                if is_iter:
+                    x = list(x)
+                if is_iter and len(x) in [0, 2, 3]:
+                    if len(x) == 0:
+                        warn('Ignoring empty element on index: '+str(i))
+                        continue
+                    else:
+                        # Our element is an iterable of at least 2 elements
+                        L = x[1]
+                elif type(x) is Graph:
+                    # get labels in any existing format
+                    L = x.get_labels(purpose="any")
+                else:
+                    raise TypeError('each element of X must be either a '
+                                    'graph object or a list with at least '
+                                    'a graph like object and node labels '
+                                    'dict \n')
+
+                # construct the data input for the numpy array
+                for (label, frequency) in iteritems(Counter(itervalues(L))):
+                    # for the row that corresponds to that graph
+                    rows.append(ni)
+
+                    # and to the value that this label is indexed
+                    col_idx = labels.get(label, None)
+                    if col_idx is None:
+                        # if not indexed, add the new index (the next)
+                        col_idx = len(labels)
+                        labels[label] = col_idx
+
+                    # designate the certain column information
+                    cols.append(col_idx)
+
+                    # as well as the frequency value to data
+                    data.append(frequency)
+                ni += 1
+
+            # update the feature matrix
+            features = self.X
+            #print("features 1")
+            #print(features)
+            right_zeros = zeros(shape=(self.X.shape[0], len(labels) - self.X.shape[1]))
+            features = concatenate((features, right_zeros), axis=1)
+            #print("features 2")
+            #print(features)
+
+            new_rows = zeros(shape=(ni, len(labels)))
+            new_rows[rows, cols] = data
+            #print("new rows")
+            #print(new_rows)
+            features = concatenate((features, new_rows), axis=0)
+            #print("features 3")
+            #print(features)
+
+            if ni == 0:
+                raise ValueError('parsed input is empty')
+            self.X = features
+            self._labels = labels
+            km = self._calculate_kernel_matrix()
+            self._X_diag = diagonal(km)
