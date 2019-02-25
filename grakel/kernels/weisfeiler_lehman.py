@@ -181,7 +181,7 @@ class WeisfeilerLehman(Kernel):
 
         # Save the number of "fitted" graphs.
         self._nx = nx
-
+       
         # get all the distinct values of current labels
         WL_labels_inverse = dict()
 
@@ -220,6 +220,7 @@ class WeisfeilerLehman(Kernel):
                         label_set.add(credential)
 
                 label_list = sorted(list(label_set))
+                label_count = 0
                 for dv in label_list:
                     WL_labels_inverse[dv] = label_count
                     label_count += 1
@@ -398,7 +399,7 @@ class WeisfeilerLehman(Kernel):
                 WL_labels_inverse = dict()
                 if len(label_set) > 0:
                     for dv in sorted(list(label_set)):
-                        idx = len(WL_labels_inverse) + nl
+                        idx = len(WL_labels_inverse) + len(self._inv_labels[i])
                         WL_labels_inverse[dv] = idx
 
                 # Recalculate labels
@@ -488,6 +489,129 @@ class WeisfeilerLehman(Kernel):
             return self._X_diag, Y_diag
         else:
             return self._X_diag
+
+    def update_kernel(self, Xn):
+        """Compute the kernel by adding the new graph without recomputing the whole thing
+        
+        Parameters
+        ----------
+        Xn : iterable
+             Each element must be an iterable with at most three features and at
+             least one. The first that is obligatory is a valid graph structure
+             (adjacency matrix or edge_dictionary) while the second is
+             node_labels and the third edge_labels (that fitting the given graph
+             format). If None the kernel matrix is calculated upon fit data.
+             The test samples.
+        
+        """
+        # Input validation and parsing
+        if Xn is None:
+            raise ValueError('transform input cannot be None')
+        else:
+            if not isinstance(Xn, collections.Iterable):
+                raise ValueError('input must be an iterable\n')
+            else:
+                nx = 0
+                distinct_values = set()
+                Gs_ed, L = dict(), dict()
+                for (i, x) in enumerate(iter(Xn)):
+                    is_iter = isinstance(x, collections.Iterable)
+                    if is_iter:
+                        x = list(x)
+                    if is_iter and len(x) in [0, 2, 3]:
+                        if len(x) == 0:
+                            warnings.warn('Ignoring empty element on index: '
+                                          + str(i))
+                            continue
+
+                        elif len(x) in [2, 3]:
+                            x = Graph(x[0], x[1], {}, self._graph_format)
+                    elif type(x) is Graph:
+                        x.desired_format("dictionary")
+                    else:
+                        raise ValueError('each element of X must have at ' +
+                                         'least one and at most 3 elements\n')
+                    Gs_ed[nx] = x.get_edge_dictionary()
+                    L[nx] = x.get_labels(purpose="dictionary")
+
+                    # Hold all the distinct values
+                    distinct_values |= set(
+                        v for v in itervalues(L[nx])
+                        if v not in self._inv_labels[0])
+                    nx += 1
+                if nx == 0:
+                    raise ValueError('parsed input is empty')
+
+        WL_labels_inverse = dict()
+        nl = len(self._inv_labels[0])
+        WL_labels_inverse = {dv: idx for (idx, dv) in
+                             enumerate(sorted(list(distinct_values)), nl)}
+
+        def generate_graphs(WL_labels_inverse):
+            # calculate the kernel matrix for the 0 iteration
+            new_graphs = list()
+            for j in range(nx):
+                new_labels = dict()
+                self._inv_labels[0] = {**WL_labels_inverse, **self._inv_labels[0]}
+                #for (ind, k) in enumerate(sorted(self._inv_labels[0].keys())):
+                #    self._inv_labels[0][k] = ind
+                for (k, v) in iteritems(L[j]):
+                    assert v in self._inv_labels[0]
+                    new_labels[k] = self._inv_labels[0][v]
+                        
+                L[j] = new_labels
+                # produce the new graphs
+                new_graphs.append([Gs_ed[j], new_labels])
+            yield new_graphs
+
+            for i in range(1, self._niter):
+                new_graphs = list()
+                L_temp, label_set = dict(), set()
+                nl = len(self._inv_labels[i])
+                for j in range(nx):
+                    # Find unique labels and sort them for both graphs
+                    # Keep for each node the temporary
+                    L_temp[j] = dict()
+                    for v in Gs_ed[j].keys():
+                        credential = str(L[j][v]) + "," + \
+                            str(sorted([L[j][n] for n in Gs_ed[j][v].keys()]))
+                        L_temp[j][v] = credential
+                        if credential not in self._inv_labels[i]:
+                            label_set.add(credential)
+
+                # Calculate the new label_set
+                WL_labels_inverse = dict()
+                if len(label_set) > 0:
+                    for dv in sorted(list(label_set)):
+                        idx = len(WL_labels_inverse) + len(self._inv_labels[i])
+                        WL_labels_inverse[dv] = idx
+                self._inv_labels[i] = {**WL_labels_inverse, **self._inv_labels[i]}
+                # Recalculate labels
+                new_graphs = list()
+                for j in range(nx):
+                    new_labels = dict()
+                    for (k, v) in iteritems(L_temp[j]):
+                        assert v in self._inv_labels[i]
+                        new_labels[k] = self._inv_labels[i][v]
+                    L[j] = new_labels
+                    # Create the new graphs with the new labels.
+                    new_graphs.append([Gs_ed[j], new_labels])
+                yield new_graphs
+        
+        base_kernel = self.X
+        km = np.sum((base_kernel[i].update_kernel(g) for (i, g) in 
+            enumerate(generate_graphs(WL_labels_inverse))), axis=0)
+
+        self._nx += nx
+        self.X = base_kernel
+        
+        self._X_diag = np.diagonal(km)
+        if self.normalize:
+            old_settings = np.seterr(divide='ignore')
+            km = np.nan_to_num(np.divide(km, np.sqrt(np.outer(self._X_diag, self._X_diag))))
+            np.seterr(**old_settings)
+        return km
+        
 
 
 def efit(object, data):

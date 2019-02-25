@@ -11,6 +11,7 @@ from sklearn.utils.validation import check_is_fitted
 from grakel.kernels import Kernel
 from grakel.graph import Graph
 
+import numpy as np
 from numpy import zeros
 from numpy import einsum
 from numpy import diagonal
@@ -121,8 +122,6 @@ class VertexHistogram(Kernel):
             # Initialise the feature matrix
             features = zeros(shape=(ni, len(labels)))
             features[rows, cols] = data
-            #print("Corected features")
-            #print(features)
 
             if ni == 0:
                 raise ValueError('parsed input is empty')
@@ -152,7 +151,6 @@ class VertexHistogram(Kernel):
             K = self.X.dot(self.X.T)
         else:
             K = Y[:, :self.X.shape[1]].dot(self.X.T)
-        #print("K", K)
         return K
 
     def diagonal(self):
@@ -177,7 +175,6 @@ class VertexHistogram(Kernel):
         except NotFittedError:
             # Calculate diagonal of X
             self._X_diag = einsum('ij,ij->i', self.X, self.X)
-            #print("_X_diag", self._X_diag)
 
         try:
             check_is_fitted(self, ['_Y'])
@@ -252,20 +249,12 @@ class VertexHistogram(Kernel):
 
             # update the feature matrix
             features = self.X
-            #print("features 1")
-            #print(features)
             right_zeros = zeros(shape=(self.X.shape[0], len(labels) - self.X.shape[1]))
             features = concatenate((features, right_zeros), axis=1)
-            #print("features 2")
-            #print(features)
 
             new_rows = zeros(shape=(ni, len(labels)))
             new_rows[rows, cols] = data
-            #print("new rows")
-            #print(new_rows)
             features = concatenate((features, new_rows), axis=0)
-            #print("features 3")
-            #print(features)
 
             if ni == 0:
                 raise ValueError('parsed input is empty')
@@ -273,3 +262,7 @@ class VertexHistogram(Kernel):
             self._labels = labels
             km = self._calculate_kernel_matrix()
             self._X_diag = diagonal(km)
+            if self.normalize:
+                return km / np.sqrt(np.outer(self._X_diag, self._X_diag))
+            else:
+                return km
