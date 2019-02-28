@@ -354,8 +354,53 @@ class GraphKernel(BaseEstimator, TransformerMixin):
         return K
     
     def update_kernel(self, X):
-        self.kernel_.update_kernel(X)
-        return self
+        """Update the kernel with new graphs
+        
+        Parameters
+        ----------
+        X : iterable
+            Each element must be an iterable with at most three features and at
+            least one. The first that is obligatory is a valid graph structure
+            (adjacency matrix or edge_dictionary) while the second is
+            node_labels and the third edge_labels (that fitting the given graph
+            format). If None the kernel matrix is calculated upon fit data.
+            The test samples.
+
+        Returns
+        -------
+        K : numpy array, shape = [n_targets, n_input_graphs]
+            corresponding to the kernel matrix, a calculation between
+            all pairs of graphs between target an features
+            all pairs of graphs between target an features
+
+        """
+        return self.kernel_.update_kernel(X)
+
+    def replace_kernel(self, Xn, inds):
+        """Update the kernel with new graphs
+        
+        Parameters
+        ----------
+        X : iterable
+            Each element must be an iterable with at most three features and at
+            least one. The first that is obligatory is a valid graph structure
+            (adjacency matrix or edge_dictionary) while the second is
+            node_labels and the third edge_labels (that fitting the given graph
+            format). If None the kernel matrix is calculated upon fit data.
+            The test samples.
+        inds : list
+            Each element must be a valid index of graphs that is being replaced
+            by the new graph
+
+        Returns
+        -------
+        K : numpy array, shape = [n_targets, n_input_graphs]
+            corresponding to the kernel matrix, a calculation between
+            all pairs of graphs between target an features
+            all pairs of graphs between target an features
+
+        """
+        return self.kernel_.replace_kernel(Xn, inds)
 
     def fit_transform(self, X, y=None):
         """Fit and transform, on the same dataset.

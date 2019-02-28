@@ -182,6 +182,7 @@ class VertexHistogram(Kernel):
             return self._X_diag, Y_diag
         except NotFittedError:
             return self._X_diag
+
     def update_kernel(self, Xn):
         """Update the kernel with new input without retraining the whole thing
 
@@ -266,3 +267,88 @@ class VertexHistogram(Kernel):
                 return km / np.sqrt(np.outer(self._X_diag, self._X_diag))
             else:
                 return km
+            
+    def replace_kernel(self, Xn, inds):
+        """Update the kernel with new input without retraining the whole thing
+
+        Parameters
+        ----------
+        X : iterable
+            For the input to pass the test, we must have:
+            Each element must be an iterable with at most three features and at
+            least one. The first that is obligatory is a valid graph structure
+            (adjacency matrix or edge_dictionary) while the second is
+            node_labels and the third edge_labels (that fitting the given graph
+            format).
+
+        Returns
+        -------
+        out : np.array, shape=(len(X), n_labels)
+            A np.array for frequency (cols) histograms for all Graphs (rows).
+        
+        """
+        if not isinstance(Xn, Iterable):
+            raise TypeError('input must be an iterable\n')
+        else:
+            rows, cols, data = list(), list(), list()
+            labels = dict(self._labels)
+            ni = 0
+            _ni = self.X.shape[0]
+            for (i, x) in enumerate(iter(Xn)):
+                is_iter = isinstance(x, Iterable)
+                if is_iter:
+                    x = list(x)
+                if is_iter and len(x) in [0, 2, 3]:
+                    if len(x) == 0:
+                        warn('Ignoring empty element on index: '+str(i))
+                        continue
+                    else:
+                        # Our element is an iterable of at least 2 elements
+                        L = x[1]
+                elif type(x) is Graph:
+                    # get labels in any existing format
+                    L = x.get_labels(purpose="any")
+                else:
+                    raise TypeError('each element of X must be either a '
+                                    'graph object or a list with at least '
+                                    'a graph like object and node labels '
+                                    'dict \n')
+
+                # construct the data input for the numpy array
+                for (label, frequency) in iteritems(Counter(itervalues(L))):
+                    # for the row that corresponds to that graph
+                    rows.append(ni)
+
+                    # and to the value that this label is indexed
+                    col_idx = labels.get(label, None)
+                    if col_idx is None:
+                        # if not indexed, add the new index (the next)
+                        col_idx = len(labels)
+                        labels[label] = col_idx
+
+                    # designate the certain column information
+                    cols.append(col_idx)
+
+                    # as well as the frequency value to data
+                    data.append(frequency)
+                ni += 1
+
+            # update the feature matrix with new labels
+            features = self.X
+            right_zeros = zeros(shape=(self.X.shape[0], len(labels) - self.X.shape[1]))
+            features = concatenate((features, right_zeros), axis=1)
+
+            new_rows = zeros(shape=(ni, len(labels)))
+            new_rows[rows, cols] = data
+            assert len(new_rows) == len(inds)
+            # Replace original rows with data from new graph
+            for row, ind in zip(new_rows, inds):
+                features[ind] = row
+           
+            # update and calculate kernel matrix
+            self.X = features
+            km = self._calculate_kernel_matrix()
+            self._X_diag = diagonal(km)
+            if self.normalize:
+                return km / np.sqrt(np.outer(self._X_diag, self._X_diag))
+            return km
