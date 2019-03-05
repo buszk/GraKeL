@@ -347,6 +347,7 @@ class VertexHistogram(Kernel):
            
             # update and calculate kernel matrix
             self.X = features
+            self._labels = labels
             km = self._calculate_kernel_matrix()
             self._X_diag = diagonal(km)
             if self.normalize:
